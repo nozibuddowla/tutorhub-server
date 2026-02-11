@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
+const { ObjectId } = require("mongodb");
 
 require("dotenv").config();
 const app = express();
@@ -56,6 +57,39 @@ async function run() {
 
     const database = client.db("tutorhubDB");
     const userCollections = database.collection("users");
+    const tuitionCollections = database.collection("tuitions");
+    const paymentCollections = database.collection("payments");
+
+    // ─── ADMIN: USER MANAGEMENT ──────────────────────────────────────────────
+
+    // Get all users (Admin only)
+    app.get("/admin/users", verifyJWT, async (req, res) => {
+      if (req.user.role !== "admin") {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+      const result = await userCollections.find().toArray();
+      res.send(result);
+    });
+
+    // Delete a user
+    app.delete("/admin/users/:id", verifyJWT, async (req, res) => {
+      if (req.user.role !== "admin")
+        return res.status(403).send({ message: "Forbidden" });
+      const id = req.params.id;
+      const result = await userCollections.deleteOne({ _id: new ObjectId(id) });
+      res.send(result);
+    });
+
+    // Update User (Generic - Info or Role)
+    app.patch("/admin/users/:id", verifyJWT, async (req, res) => {
+      const id = req.params.id;
+      const updatedData = req.body;
+      const result = await userCollections.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: updatedData },
+      );
+      res.send(result);
+    });
 
     // ============= AUTH ROUTES =============
 

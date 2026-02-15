@@ -12,7 +12,7 @@ const port = process.env.PORT || 5000;
 // app.use(cors());
 app.use(
   cors({
-    origin: ["http://localhost:5173"],
+    origin: ["http://localhost:5173", "https://beautiful-seahorse-891f9a.netlify.app"],
     credentials: true,
   }),
 );
@@ -53,7 +53,7 @@ const verifyJWT = (req, res, next) => {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
 
     const database = client.db("tutorhubDB");
     const userCollections = database.collection("users");
@@ -387,7 +387,7 @@ async function run() {
       res.send(payments);
     });
 
-    await client.db("admin").command({ ping: 1 });
+    // await client.db("admin").command({ ping: 1 });
     console.log("Successfully connected to MongoDB!");
   } catch (error) {
     console.error("MongoDB connection error:", error);

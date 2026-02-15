@@ -60,6 +60,28 @@ async function run() {
     const tuitionCollections = database.collection("tuitions");
     const paymentCollections = database.collection("payments");
 
+    // ─── PUBLIC DATA ENDPOINTS ──────────────────────────────────────────────────
+
+    // Get Latest 6 Tuitions for Home Page
+    app.get("/tuitions", async (req, res) => {
+      const result = await tuitionCollections
+        .find()
+        .sort({ createdAt: -1 })
+        .limit(6)
+        .toArray();
+      res.send(result);
+    });
+
+    // Get Latest 6 Tutors for Home Page
+    app.get("/tutors", async (req, res) => {
+      const result = await userCollections
+        .find({ role: "tutor" })
+        .sort({ createdAt: -1 })
+        .limit(6)
+        .toArray();
+      res.send(result);
+    });
+
     // ─── ADMIN: USER MANAGEMENT ──────────────────────────────────────────────
 
     // Get all users (Admin only)
@@ -84,7 +106,7 @@ async function run() {
     // Update User (Generic - Info or Role)
     app.patch("/admin/users/:id", verifyJWT, async (req, res) => {
       if (req.user.role !== "admin") {
-        return res.status(403).send({ message: "Forbidden access"});
+        return res.status(403).send({ message: "Forbidden access" });
       }
       const id = req.params.id;
       const updatedData = req.body;

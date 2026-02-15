@@ -59,6 +59,7 @@ async function run() {
     const userCollections = database.collection("users");
     const tuitionCollections = database.collection("tuitions");
     const paymentCollections = database.collection("payments");
+    const applicationsCollection = database.collection("applications");
 
     // ─── PUBLIC DATA ENDPOINTS ──────────────────────────────────────────────────
 
@@ -312,6 +313,78 @@ async function run() {
           error: error.message,
         });
       }
+    });
+
+    // ─── TUTOR APPLICATION ROUTES ─────────────────────────────────────────
+
+    // Create new tuition application
+    app.post("/applications", verifyJWT, async (req, res) => {
+      try {
+        const applicationData = req.body;
+        const result = await database.collection("applications").insertOne({
+          ...applicationData,
+          status: "pending",
+          createdAt: new Date(),
+        });
+        res.json({ success: true, insertedId: result.insertedId });
+      } catch (error) {
+        res
+          .status(500)
+          .json({ success: false, message: "Failed to submit application" });
+      }
+    });
+
+    // Get tutor's applications
+    app.get("/tutor/applications/:email", verifyJWT, async (req, res) => {
+      try {
+        const email = req.params.email;
+        const applications = await database
+          .collection("applications")
+          .find({ tutorEmail: email })
+          .sort({ createdAt: -1 })
+          .toArray();
+        res.send(applications);
+      } catch (error) {
+        res.status(500).send({ message: "Failed to fetch applications" });
+      }
+    });
+
+    // Update application
+    app.patch("/applications/:id", verifyJWT, async (req, res) => {
+      const id = req.params.id;
+      const updates = req.body;
+      const result = await database
+        .collection("applications")
+        .updateOne({ _id: new ObjectId(id) }, { $set: updates });
+      res.send(result);
+    });
+
+    // Delete application
+    app.delete("/applications/:id", verifyJWT, async (req, res) => {
+      const id = req.params.id;
+      const result = await database.collection("applications").deleteOne({
+        _id: new ObjectId(id),
+      });
+      res.send(result);
+    });
+
+    // Get tutor's ongoing tuitions (approved applications)
+    app.get("/tutor/ongoing/:email", verifyJWT, async (req, res) => {
+      const email = req.params.email;
+      const ongoing = await database
+        .collection("applications")
+        .find({ tutorEmail: email, status: "approved" })
+        .toArray();
+      res.send(ongoing);
+    });
+
+    // Get tutor's revenue/payments
+    app.get("/tutor/revenue/:email", verifyJWT, async (req, res) => {
+      const email = req.params.email;
+      const payments = await paymentCollections
+        .find({ tutorEmail: email, status: "success" })
+        .toArray();
+      res.send(payments);
     });
 
     await client.db("admin").command({ ping: 1 });

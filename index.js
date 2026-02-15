@@ -117,6 +117,38 @@ async function run() {
       res.send(result);
     });
 
+    // Get all tuitions (Admin only)
+    app.get("/admin/tuitions", verifyJWT, async (req, res) => {
+      if (req.user.role !== "admin") {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+      const result = await tuitionCollections.find().toArray();
+      res.send(result);
+    });
+
+    // Approve/Reject tuition requests (Admin only)
+    app.patch("/admin/tuitions/:id", verifyJWT, async (req, res) => {
+      if (req.user.role !== "admin") {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+      const id = req.params.id;
+      const { status } = req.body; // "approved" or "rejected"
+      const result = await tuitionCollections.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { status, approvedAt: new Date() } },
+      );
+      res.send(result);
+    });
+
+    // Get all transactions/payments (Admin only)
+    app.get("/admin/payments", verifyJWT, async (req, res) => {
+      if (req.user.role !== "admin") {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+      const result = await paymentCollections.find().toArray();
+      res.send(result);
+    });
+
     // ============= AUTH ROUTES =============
 
     // Generate JWT Token on Login

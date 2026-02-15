@@ -73,8 +73,9 @@ async function run() {
 
     // Delete a user
     app.delete("/admin/users/:id", verifyJWT, async (req, res) => {
-      if (req.user.role !== "admin")
-        return res.status(403).send({ message: "Forbidden" });
+      if (req.user.role !== "admin") {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
       const id = req.params.id;
       const result = await userCollections.deleteOne({ _id: new ObjectId(id) });
       res.send(result);
@@ -82,6 +83,9 @@ async function run() {
 
     // Update User (Generic - Info or Role)
     app.patch("/admin/users/:id", verifyJWT, async (req, res) => {
+      if (req.user.role !== "admin") {
+        return res.status(403).send({ message: "Forbidden access"});
+      }
       const id = req.params.id;
       const updatedData = req.body;
       const result = await userCollections.updateOne(

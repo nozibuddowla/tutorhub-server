@@ -5,6 +5,7 @@ const cookieParser = require("cookie-parser");
 const { ObjectId } = require("mongodb");
 
 require("dotenv").config();
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const app = express();
 const port = process.env.PORT || 5000;
 
@@ -661,6 +662,92 @@ async function run() {
           success: false,
           message: "Failed to approve application",
         });
+      }
+    });
+
+    app.post("/create-payment-intent", verifyJWT, async (req, res) => {
+      const { amount } = req.body;
+
+      try {
+        console.log("Creating payment intent for amount:", amount);
+
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: amount * 100,
+          currency: "usd",
+          payment_method_types: ["card"],
+        });
+
+        res.send({
+          clientSecret: paymentIntent.client_secret,
+        });
+      } catch (error) {
+        console.error("Stripe error:", error.message);
+        res.status(500).send({ error: error.message });
+      }
+    });
+
+    // Save payment record
+    app.post("/payments", verifyJWT, async (req, res) => {
+      try {
+        const paymentData = req.body;
+        const result = await paymentCollections.insertOne(paymentData);
+        res.json({ success: true, insertedId: result.insertedId });
+      } catch (error) {
+        res
+          .status(500)
+          .json({ success: false, message: "Failed to save payment" });
+      }
+    });
+
+    // Get student's payments
+    app.get("/student/payments/:email", verifyJWT, async (req, res) => {
+      try {
+        const email = req.params.email;
+
+        if (req.user.email !== email) {
+          return res.status(403).json({ message: "Forbidden access" });
+        }
+
+        const payments = await paymentCollections
+          .find({ studentEmail: email })
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        res.send(payments);
+      } catch (error) {
+        res.status(500).json({ message: "Failed to fetch payments" });
+      }
+    });
+
+    // Get all approved tuitions (for listing page)
+    app.get("/tuitions/all", async (req, res) => {
+      try {
+        const tuitions = await tuitionCollections
+          .find({ status: "approved" })
+          .sort({ createdAt: -1 })
+          .toArray();
+        res.send(tuitions);
+      } catch (error) {
+        res.status(500).json({ message: "Failed to fetch tuitions" });
+      }
+    });
+
+    // Get single tuition by ID (for details page)
+    app.get("/tuitions/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const tuition = await tuitionCollections.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (!tuition) {
+          return res.status(404).json({ message: "Tuition not found" });
+        }
+
+        res.send(tuition);
+      } catch (error) {
+        console.error("Error fetching tuition:", error);
+        res.status(500).json({ message: "Failed to fetch tuition" });
       }
     });
 

@@ -404,6 +404,11 @@ async function run() {
     app.post("/applications", verifyJWT, async (req, res) => {
       try {
         const applicationData = req.body;
+
+        const tutor = await userCollections.findOne({
+          email: applicationData.tutorEmail,
+        });
+
         const result = await database.collection("applications").insertOne({
           ...applicationData,
           status: "pending",
@@ -546,6 +551,117 @@ async function run() {
         .find({ tutorEmail: email, status: "success" })
         .toArray();
       res.send(payments);
+    });
+
+    // ─── STUDENT APPLICATION ROUTES ─────────────────────────────────────────
+
+    // Get applications for student's tuitions
+    app.get("/student/applications/:email", verifyJWT, async (req, res) => {
+      try {
+        const email = req.params.email;
+
+        // Only allow users to view applications for their own tuitions
+        if (req.user.email !== email) {
+          return res.status(403).json({ message: "Forbidden access" });
+        }
+
+        // First, get all tuitions posted by the student
+        const studentTuitions = await tuitionCollections
+          .find({ studentEmail: email })
+          .toArray();
+
+        // Get tuition IDs
+        const tuitionIds = studentTuitions.map((t) => t._id.toString());
+
+        // Find all applications for these tuitions
+        const applications = await applicationsCollection
+          .find({ tuitionId: { $in: tuitionIds } })
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        res.send(applications);
+      } catch (error) {
+        console.error("Error fetching student applications:", error);
+        res.status(500).json({ message: "Failed to fetch applications" });
+      }
+    });
+
+    // Reject application
+    app.patch("/applications/:id/reject", verifyJWT, async (req, res) => {
+      try {
+        const id = req.params.id;
+
+        const result = await applicationsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $set: {
+              status: "rejected",
+              rejectedAt: new Date(),
+            },
+          },
+        );
+
+        res.json({
+          success: true,
+          message: "Application rejected successfully",
+        });
+      } catch (error) {
+        console.error("Error rejecting application:", error);
+        res.status(500).json({
+          success: false,
+          message: "Failed to reject application",
+        });
+      }
+    });
+
+    // Approve application (called after successful payment)
+    app.patch("/applications/:id/approve", verifyJWT, async (req, res) => {
+      try {
+        const id = req.params.id;
+
+        const result = await applicationsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $set: {
+              status: "approved",
+              approvedAt: new Date(),
+            },
+          },
+        );
+
+        // Optional: Reject all other pending applications for the same tuition
+        const application = await applicationsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (application) {
+          await applicationsCollection.updateMany(
+            {
+              tuitionId: application.tuitionId,
+              _id: { $ne: new ObjectId(id) },
+              status: "pending",
+            },
+            {
+              $set: {
+                status: "rejected",
+                rejectedAt: new Date(),
+                rejectionReason: "Another tutor was selected",
+              },
+            },
+          );
+        }
+
+        res.json({
+          success: true,
+          message: "Application approved successfully",
+        });
+      } catch (error) {
+        console.error("Error approving application:", error);
+        res.status(500).json({
+          success: false,
+          message: "Failed to approve application",
+        });
+      }
     });
 
     // await client.db("admin").command({ ping: 1 });

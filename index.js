@@ -442,6 +442,50 @@ async function run() {
       res.send(result);
     });
 
+    // Update tuition (Student can update their own tuition)
+    app.patch("/tuitions/:id", verifyJWT, async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { subject, location, salary, description } = req.body;
+
+        // Check if tuition belongs to the user
+        const tuition = await tuitionCollections.findOne({
+          _id: new ObjectId(id),
+        });
+        if (!tuition) {
+          return res.status(404).json({ message: "Tuition not found" });
+        }
+
+        if (tuition.studentEmail !== req.user.email) {
+          return res.status(403).json({ message: "Forbidden access" });
+        }
+
+        const result = await tuitionCollections.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $set: {
+              subject,
+              location,
+              salary,
+              description,
+              updatedAt: new Date(),
+            },
+          },
+        );
+
+        res.json({
+          success: true,
+          message: "Tuition updated successfully",
+        });
+      } catch (error) {
+        console.error("Error updating tuition:", error);
+        res.status(500).json({
+          success: false,
+          message: "Failed to update tuition",
+        });
+      }
+    });
+
     // Delete application
     app.delete("/applications/:id", verifyJWT, async (req, res) => {
       const id = req.params.id;
@@ -449,6 +493,40 @@ async function run() {
         _id: new ObjectId(id),
       });
       res.send(result);
+    });
+
+    // Delete tuition (Student can delete their own tuition)
+    app.delete("/tuitions/:id", verifyJWT, async (req, res) => {
+      try {
+        const id = req.params.id;
+
+        // Check if tuition belongs to the user
+        const tuition = await tuitionCollections.findOne({
+          _id: new ObjectId(id),
+        });
+        if (!tuition) {
+          return res.status(404).json({ message: "Tuition not found" });
+        }
+
+        if (tuition.studentEmail !== req.user.email) {
+          return res.status(403).json({ message: "Forbidden access" });
+        }
+
+        const result = await tuitionCollections.deleteOne({
+          _id: new ObjectId(id),
+        });
+
+        res.json({
+          success: true,
+          message: "Tuition deleted successfully",
+        });
+      } catch (error) {
+        console.error("Error deleting tuition:", error);
+        res.status(500).json({
+          success: false,
+          message: "Failed to delete tuition",
+        });
+      }
     });
 
     // Get tutor's ongoing tuitions (approved applications)

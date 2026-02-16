@@ -144,6 +144,42 @@ async function run() {
       res.send(result);
     });
 
+    // Update User Profile (Any authenticated user)
+    app.patch("/users/:email", verifyJWT, async (req, res) => {
+      try {
+        const email = req.params.email;
+        const { name, photoURL } = req.body;
+
+        // Only allow users to update their own profile
+        if (req.user.email !== email) {
+          return res.status(403).json({ message: "Forbidden access" });
+        }
+
+        const result = await userCollections.updateOne(
+          { email: email },
+          { $set: { name, photoURL, updatedAt: new Date() } },
+        );
+
+        if (result.modifiedCount > 0) {
+          res.json({
+            success: true,
+            message: "Profile updated successfully",
+          });
+        } else {
+          res.status(404).json({
+            success: false,
+            message: "User not found",
+          });
+        }
+      } catch (error) {
+        console.error("Error updating profile:", error);
+        res.status(500).json({
+          success: false,
+          message: "Failed to update profile",
+        });
+      }
+    });
+
     // Get all tuitions (Admin only)
     app.get("/admin/tuitions", verifyJWT, async (req, res) => {
       if (req.user.role !== "admin") {

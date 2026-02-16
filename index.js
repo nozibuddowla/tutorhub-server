@@ -99,6 +99,27 @@ async function run() {
       }
     });
 
+    // Get student's tuitions
+    app.get("/student/tuitions/:email", verifyJWT, async (req, res) => {
+      try {
+        const email = req.params.email;
+
+        // Only allow users to view their own tuitions
+        if (req.user.email !== email) {
+          return res.status(403).json({ message: "Forbidden access" });
+        }
+
+        const tuitions = await tuitionCollections
+          .find({ studentEmail: email })
+          .sort({ createdAt: -1 })
+          .toArray();
+        res.send(tuitions);
+      } catch (error) {
+        console.error("Error fetching student tuitions:", error);
+        res.status(500).json({ message: "Failed to fetch tuitions" });
+      }
+    });
+
     // Get Latest 6 Tutors for Home Page
     app.get("/tutors", async (req, res) => {
       const result = await userCollections

@@ -726,13 +726,17 @@ async function run() {
           search,
           subject,
           location,
-          class: className,
+          status,
           sort,
           page = 1,
           limit = 6,
         } = req.query;
 
-        let query = { status: "approved" };
+        let query = {};
+
+        if (status) {
+          query.status = status;
+        }
 
         if (search) {
           query.$or = [
@@ -741,10 +745,13 @@ async function run() {
           ];
         }
 
-        if (subject && subject !== "all")
+        if (subject && subject !== "all" && subject !== "") {
           query.subject = { $regex: subject, $options: "i" };
-        if (location) query.location = { $regex: location, $options: "i" };
-        if (className) query.class = className;
+        }
+
+        if (location) {
+          query.location = { $regex: location, $options: "i" };
+        }
 
         let sortOptions = { createdAt: -1 };
         if (sort === "salaryLow") sortOptions = { salary: 1 };
@@ -768,6 +775,7 @@ async function run() {
           currentPage: parseInt(page),
         });
       } catch (error) {
+        console.error("Fetch error:", error);
         res.status(500).json({ message: "Failed to fetch tuitions" });
       }
     });

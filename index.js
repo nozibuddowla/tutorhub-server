@@ -12,7 +12,10 @@ const port = process.env.PORT || 5000;
 // app.use(cors());
 app.use(
   cors({
-    origin: ["http://localhost:5173", "https://beautiful-seahorse-891f9a.netlify.app"],
+    origin: [
+      "http://localhost:5173",
+      "https://beautiful-seahorse-891f9a.netlify.app",
+    ],
     credentials: true,
   }),
 );
@@ -71,6 +74,29 @@ async function run() {
         .limit(6)
         .toArray();
       res.send(result);
+    });
+
+    // ADD THIS: Post New Tuition (Student creates tuition request)
+    app.post("/tuitions", verifyJWT, async (req, res) => {
+      try {
+        const tuitionData = req.body;
+        const result = await tuitionCollections.insertOne({
+          ...tuitionData,
+          status: "pending",
+          createdAt: new Date(),
+        });
+        res.json({
+          success: true,
+          insertedId: result.insertedId,
+          message: "Tuition posted successfully",
+        });
+      } catch (error) {
+        console.error("Error posting tuition:", error);
+        res.status(500).json({
+          success: false,
+          message: "Failed to post tuition",
+        });
+      }
     });
 
     // Get Latest 6 Tutors for Home Page

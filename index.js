@@ -722,11 +722,51 @@ async function run() {
     // Get all approved tuitions (for listing page)
     app.get("/tuitions/all", async (req, res) => {
       try {
+        const {
+          search,
+          subject,
+          location,
+          class: className,
+          sort,
+          page = 1,
+          limit = 6,
+        } = req.query;
+
+        let query = { status: "approved" };
+
+        if (search) {
+          query.$or = [
+            { subject: { $regex: search, $options: "i" } },
+            { location: { $regex: search, $options: "i" } },
+          ];
+        }
+
+        if (subject && subject !== "all")
+          query.subject = { $regex: subject, $options: "i" };
+        if (location) query.location = { $regex: location, $options: "i" };
+        if (className) query.class = className;
+
+        let sortOptions = { createdAt: -1 };
+        if (sort === "salaryLow") sortOptions = { salary: 1 };
+        if (sort === "salaryHigh") sortOptions = { salary: -1 };
+
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+
         const tuitions = await tuitionCollections
-          .find({ status: "approved" })
-          .sort({ createdAt: -1 })
+          .find(query)
+          .sort(sortOptions)
+          .skip(skip)
+          .limit(parseInt(limit))
           .toArray();
-        res.send(tuitions);
+
+        const total = await tuitionCollections.countDocuments(query);
+
+        res.send({
+          tuitions,
+          total,
+          totalPages: Math.ceil(total / limit),
+          currentPage: parseInt(page),
+        });
       } catch (error) {
         res.status(500).json({ message: "Failed to fetch tuitions" });
       }

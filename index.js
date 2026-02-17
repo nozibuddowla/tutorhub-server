@@ -97,6 +97,7 @@ async function run() {
     const tuitionCollections = database.collection("tuitions");
     const paymentCollections = database.collection("payments");
     const applicationsCollection = database.collection("applications");
+    const reviewsCollection = database.collection("reviews");
 
     // ─── PUBLIC DATA ENDPOINTS ──────────────────────────────────────────────────
 
@@ -861,6 +862,62 @@ async function run() {
         console.error("Error fetching tuition:", error);
         res.status(500).json({ message: "Failed to fetch tuition" });
       }
+    });
+
+    // Get all reviews for a specific tuition
+    app.post("/reviews", verifyJWT, verifyStudent, async (req, res) => {
+      try {
+        const review = req.body;
+        const reviewDoc = {
+          ...review,
+          rating: parseFloat(review.rating),
+          comment: review.comment,
+          createdAt: new Date(),
+        };
+
+        const result = await reviewsCollection.insertOne(reviewDoc);
+
+        const stats = await reviewsCollection
+          .aggregate([
+            { $match: { tutorEmail: review.tutorEmail } },
+            {
+              $group: {
+                _id: "$tutorEmail",
+                avgRating: { $avg: "$rating" },
+                totalReviews: { $sum: 1 },
+              },
+            },
+          ])
+          .toArray();
+
+        if (stats.length > 0) {
+          await userCollections.updateOne(
+            { email: review.tutorEmail },
+            {
+              $set: {
+                averageRating: stats[0].avgRating.toFixed(2),
+                reviewCount: stats[0].totalReviews,
+              },
+            },
+          );
+        }
+
+        res.json({ success: true, message: "Review submitted successfully!" });
+      } catch (error) {
+        console.error("Error submitting review:", error);
+        res
+          .status(500)
+          .json({ success: false, message: "Failed to submit review" });
+      }
+    });
+
+    app.get("/reviews/:email", async (req, res) => {
+      const email = req.params.email;
+      const reviews = await reviewsCollection
+        .find({ tutorEmail: email })
+        .sort({ createdAt: -1 })
+        .toArray();
+      res.send(reviews);
     });
 
     // await client.db("admin").command({ ping: 1 });

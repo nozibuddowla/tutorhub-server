@@ -54,6 +54,39 @@ const verifyJWT = (req, res, next) => {
   });
 };
 
+// Verify Admin role
+const verifyAdmin = (req, res, next) => {
+  if (req.user?.role !== "admin") {
+    return res.status(403).json({
+      success: false,
+      message: "Forbidden: Admin access required",
+    });
+  }
+  next();
+};
+
+// Verify Tutor role
+const verifyTutor = (req, res, next) => {
+  if (req.user?.role !== "tutor") {
+    return res.status(403).json({
+      success: false,
+      message: "Forbidden: Tutor access required",
+    });
+  }
+  next();
+};
+
+// Verify Student role
+const verifyStudent = (req, res, next) => {
+  if (req.user?.role !== "student") {
+    return res.status(403).json({
+      success: false,
+      message: "Forbidden: Student access required",
+    });
+  }
+  next();
+};
+
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
@@ -101,25 +134,119 @@ async function run() {
     });
 
     // Get student's tuitions
-    app.get("/student/tuitions/:email", verifyJWT, async (req, res) => {
-      try {
-        const email = req.params.email;
+    app.get(
+      "/student/tuitions/:email",
+      verifyJWT,
+      verifyStudent,
+      async (req, res) => {
+        try {
+          const email = req.params.email;
 
-        // Only allow users to view their own tuitions
-        if (req.user.email !== email) {
-          return res.status(403).json({ message: "Forbidden access" });
+          // Only allow users to view their own tuitions
+          if (req.user.email !== email) {
+            return res.status(403).json({ message: "Forbidden access" });
+          }
+
+          const tuitions = await tuitionCollections
+            .find({ studentEmail: email })
+            .sort({ createdAt: -1 })
+            .toArray();
+          res.send(tuitions);
+        } catch (error) {
+          console.error("Error fetching student tuitions:", error);
+          res.status(500).json({ message: "Failed to fetch tuitions" });
         }
+      },
+    );
 
-        const tuitions = await tuitionCollections
-          .find({ studentEmail: email })
-          .sort({ createdAt: -1 })
-          .toArray();
-        res.send(tuitions);
-      } catch (error) {
-        console.error("Error fetching student tuitions:", error);
-        res.status(500).json({ message: "Failed to fetch tuitions" });
-      }
-    });
+    // ─── STUDENT APPLICATION ROUTES ─────────────────────────────────────────
+
+    // Get applications for student's tuitions
+    app.get(
+      "/student/applications/:email",
+      verifyJWT,
+      verifyStudent,
+      async (req, res) => {
+        try {
+          const email = req.params.email;
+
+          // Only allow users to view applications for their own tuitions
+          if (req.user.email !== email) {
+            return res.status(403).json({ message: "Forbidden access" });
+          }
+
+          // First, get all tuitions posted by the student
+          const studentTuitions = await tuitionCollections
+            .find({ studentEmail: email })
+            .toArray();
+
+          // Get tuition IDs
+          const tuitionIds = studentTuitions.map((t) => t._id.toString());
+
+          // Find all applications for these tuitions
+          const applications = await applicationsCollection
+            .find({ tuitionId: { $in: tuitionIds } })
+            .sort({ createdAt: -1 })
+            .toArray();
+
+          res.send(applications);
+        } catch (error) {
+          console.error("Error fetching student applications:", error);
+          res.status(500).json({ message: "Failed to fetch applications" });
+        }
+      },
+    );
+
+    // Get student's payments
+    app.get(
+      "/student/payments/:email",
+      verifyJWT,
+      verifyStudent,
+      async (req, res) => {
+        try {
+          const email = req.params.email;
+
+          if (req.user.email !== email) {
+            return res.status(403).json({ message: "Forbidden access" });
+          }
+
+          const payments = await paymentCollections
+            .find({ studentEmail: email })
+            .sort({ createdAt: -1 })
+            .toArray();
+
+          res.send(payments);
+        } catch (error) {
+          res.status(500).json({ message: "Failed to fetch payments" });
+        }
+      },
+    );
+
+    app.post(
+      "/create-payment-intent",
+      verifyJWT,
+      verifyStudent,
+      async (req, res) => {
+        const { amount } = req.body;
+
+        try {
+          console.log("Creating payment intent for amount:", amount);
+
+          const paymentIntent = await stripe.paymentIntents.create({
+            amount: amount * 100,
+            currency: "usd",
+            payment_method_types: ["card"],
+          });
+
+          res.send({
+            clientSecret: paymentIntent.client_secret,
+          });
+        } catch (error) {
+          console.error("Stripe error:", error.message);
+          res.status(500).send({ error: error.message });
+        }
+      },
+    );
 
     // Get Latest 6 Tutors for Home Page
     app.get("/tutors", async (req, res) => {
@@ -134,26 +261,20 @@ async function run() {
     // ─── ADMIN: USER MANAGEMENT ──────────────────────────────────────────────
 
     // Get all users (Admin only)
-    app.get("/admin/users", verifyJWT, async (req, res) => {
-      if (req.user.role !== "admin") {
-        return res.status(403).send({ message: "Forbidden access" });
-      }
+    app.get("/admin/users", verifyJWT, verifyAdmin, async (req, res) => {
       const result = await userCollections.find().toArray();
       res.send(result);
     });
 
     // Delete a user
-    app.delete("/admin/users/:id", verifyJWT, async (req, res) => {
-      if (req.user.role !== "admin") {
-        return res.status(403).send({ message: "Forbidden access" });
-      }
+    app.delete("/admin/users/:id", verifyJWT, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const result = await userCollections.deleteOne({ _id: new ObjectId(id) });
       res.send(result);
     });
 
     // Update User (Generic - Info or Role)
-    app.patch("/admin/users/:id", verifyJWT, async (req, res) => {
+    app.patch("/admin/users/:id", verifyJWT, verifyAdmin, async (req, res) => {
       if (req.user.role !== "admin") {
         return res.status(403).send({ message: "Forbidden access" });
       }
@@ -163,6 +284,40 @@ async function run() {
         { _id: new ObjectId(id) },
         { $set: updatedData },
       );
+      res.send(result);
+    });
+
+    // Get all tuitions (Admin only)
+    app.get("/admin/tuitions", verifyJWT, verifyAdmin, async (req, res) => {
+      const result = await tuitionCollections.find().toArray();
+      res.send(result);
+    });
+
+    // Approve/Reject tuition requests (Admin only)
+    app.patch(
+      "/admin/tuitions/:id",
+      verifyJWT,
+      verifyAdmin,
+      async (req, res) => {
+        if (req.user.role !== "admin") {
+          return res.status(403).send({ message: "Forbidden access" });
+        }
+        const id = req.params.id;
+        const { status } = req.body; // "approved" or "rejected"
+        const result = await tuitionCollections.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status, approvedAt: new Date() } },
+        );
+        res.send(result);
+      },
+    );
+
+    // Get all transactions/payments (Admin only)
+    app.get("/admin/payments", verifyJWT, verifyAdmin, async (req, res) => {
+      if (req.user.role !== "admin") {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+      const result = await paymentCollections.find().toArray();
       res.send(result);
     });
 
@@ -200,38 +355,6 @@ async function run() {
           message: "Failed to update profile",
         });
       }
-    });
-
-    // Get all tuitions (Admin only)
-    app.get("/admin/tuitions", verifyJWT, async (req, res) => {
-      if (req.user.role !== "admin") {
-        return res.status(403).send({ message: "Forbidden access" });
-      }
-      const result = await tuitionCollections.find().toArray();
-      res.send(result);
-    });
-
-    // Approve/Reject tuition requests (Admin only)
-    app.patch("/admin/tuitions/:id", verifyJWT, async (req, res) => {
-      if (req.user.role !== "admin") {
-        return res.status(403).send({ message: "Forbidden access" });
-      }
-      const id = req.params.id;
-      const { status } = req.body; // "approved" or "rejected"
-      const result = await tuitionCollections.updateOne(
-        { _id: new ObjectId(id) },
-        { $set: { status, approvedAt: new Date() } },
-      );
-      res.send(result);
-    });
-
-    // Get all transactions/payments (Admin only)
-    app.get("/admin/payments", verifyJWT, async (req, res) => {
-      if (req.user.role !== "admin") {
-        return res.status(403).send({ message: "Forbidden access" });
-      }
-      const result = await paymentCollections.find().toArray();
-      res.send(result);
     });
 
     // ============= AUTH ROUTES =============
@@ -424,19 +547,53 @@ async function run() {
     });
 
     // Get tutor's applications
-    app.get("/tutor/applications/:email", verifyJWT, async (req, res) => {
-      try {
+    app.get(
+      "/tutor/applications/:email",
+      verifyJWT,
+      verifyTutor,
+      async (req, res) => {
+        try {
+          const email = req.params.email;
+          const applications = await database
+            .collection("applications")
+            .find({ tutorEmail: email })
+            .sort({ createdAt: -1 })
+            .toArray();
+          res.send(applications);
+        } catch (error) {
+          res.status(500).send({ message: "Failed to fetch applications" });
+        }
+      },
+    );
+
+    // Get tutor's ongoing tuitions (approved applications)
+    app.get(
+      "/tutor/ongoing/:email",
+      verifyJWT,
+      verifyTutor,
+      async (req, res) => {
         const email = req.params.email;
-        const applications = await database
+        const ongoing = await database
           .collection("applications")
-          .find({ tutorEmail: email })
-          .sort({ createdAt: -1 })
+          .find({ tutorEmail: email, status: "approved" })
           .toArray();
-        res.send(applications);
-      } catch (error) {
-        res.status(500).send({ message: "Failed to fetch applications" });
-      }
-    });
+        res.send(ongoing);
+      },
+    );
+
+    // Get tutor's revenue/payments
+    app.get(
+      "/tutor/revenue/:email",
+      verifyJWT,
+      verifyTutor,
+      async (req, res) => {
+        const email = req.params.email;
+        const payments = await paymentCollections
+          .find({ tutorEmail: email, status: "success" })
+          .toArray();
+        res.send(payments);
+      },
+    );
 
     // Update application
     app.patch("/applications/:id", verifyJWT, async (req, res) => {
@@ -535,58 +692,6 @@ async function run() {
       }
     });
 
-    // Get tutor's ongoing tuitions (approved applications)
-    app.get("/tutor/ongoing/:email", verifyJWT, async (req, res) => {
-      const email = req.params.email;
-      const ongoing = await database
-        .collection("applications")
-        .find({ tutorEmail: email, status: "approved" })
-        .toArray();
-      res.send(ongoing);
-    });
-
-    // Get tutor's revenue/payments
-    app.get("/tutor/revenue/:email", verifyJWT, async (req, res) => {
-      const email = req.params.email;
-      const payments = await paymentCollections
-        .find({ tutorEmail: email, status: "success" })
-        .toArray();
-      res.send(payments);
-    });
-
-    // ─── STUDENT APPLICATION ROUTES ─────────────────────────────────────────
-
-    // Get applications for student's tuitions
-    app.get("/student/applications/:email", verifyJWT, async (req, res) => {
-      try {
-        const email = req.params.email;
-
-        // Only allow users to view applications for their own tuitions
-        if (req.user.email !== email) {
-          return res.status(403).json({ message: "Forbidden access" });
-        }
-
-        // First, get all tuitions posted by the student
-        const studentTuitions = await tuitionCollections
-          .find({ studentEmail: email })
-          .toArray();
-
-        // Get tuition IDs
-        const tuitionIds = studentTuitions.map((t) => t._id.toString());
-
-        // Find all applications for these tuitions
-        const applications = await applicationsCollection
-          .find({ tuitionId: { $in: tuitionIds } })
-          .sort({ createdAt: -1 })
-          .toArray();
-
-        res.send(applications);
-      } catch (error) {
-        console.error("Error fetching student applications:", error);
-        res.status(500).json({ message: "Failed to fetch applications" });
-      }
-    });
-
     // Reject application
     app.patch("/applications/:id/reject", verifyJWT, async (req, res) => {
       try {
@@ -665,27 +770,6 @@ async function run() {
       }
     });
 
-    app.post("/create-payment-intent", verifyJWT, async (req, res) => {
-      const { amount } = req.body;
-
-      try {
-        console.log("Creating payment intent for amount:", amount);
-
-        const paymentIntent = await stripe.paymentIntents.create({
-          amount: amount * 100,
-          currency: "usd",
-          payment_method_types: ["card"],
-        });
-
-        res.send({
-          clientSecret: paymentIntent.client_secret,
-        });
-      } catch (error) {
-        console.error("Stripe error:", error.message);
-        res.status(500).send({ error: error.message });
-      }
-    });
-
     // Save payment record
     app.post("/payments", verifyJWT, async (req, res) => {
       try {
@@ -696,26 +780,6 @@ async function run() {
         res
           .status(500)
           .json({ success: false, message: "Failed to save payment" });
-      }
-    });
-
-    // Get student's payments
-    app.get("/student/payments/:email", verifyJWT, async (req, res) => {
-      try {
-        const email = req.params.email;
-
-        if (req.user.email !== email) {
-          return res.status(403).json({ message: "Forbidden access" });
-        }
-
-        const payments = await paymentCollections
-          .find({ studentEmail: email })
-          .sort({ createdAt: -1 })
-          .toArray();
-
-        res.send(payments);
-      } catch (error) {
-        res.status(500).json({ message: "Failed to fetch payments" });
       }
     });
 

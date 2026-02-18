@@ -13,10 +13,7 @@ const port = process.env.PORT || 5000;
 // app.use(cors());
 app.use(
   cors({
-    origin: [
-      "http://localhost:5173",
-      "https://beautiful-seahorse-891f9a.netlify.app",
-    ],
+    origin: ["http://localhost:5173", "https://tutorhub-nozib.netlify.app/"],
     credentials: true,
   }),
 );

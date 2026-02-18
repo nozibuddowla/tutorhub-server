@@ -259,6 +259,63 @@ async function run() {
       res.send(result);
     });
 
+    // Get ALL Tutors (no limit) — for the tutors listing page
+    app.get("/tutors/all", async (req, res) => {
+      try {
+        const { search, page = 1, limit = 9 } = req.query;
+
+        let query = { role: "tutor" };
+
+        if (search) {
+          query.$or = [
+            { name: { $regex: search, $options: "i" } },
+            { subjects: { $regex: search, $options: "i" } },
+          ];
+        }
+
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+
+        const tutors = await userCollections
+          .find(query)
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(parseInt(limit))
+          .toArray();
+
+        const total = await userCollections.countDocuments(query);
+
+        res.send({
+          tutors,
+          total,
+          totalPages: Math.ceil(total / parseInt(limit)),
+          currentPage: parseInt(page),
+        });
+      } catch (error) {
+        console.error("Error fetching tutors:", error);
+        res.status(500).json({ message: "Failed to fetch tutors" });
+      }
+    });
+
+    // Get single tutor by ID — for the tutor profile page
+    app.get("/tutors/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const tutor = await userCollections.findOne({
+          _id: new ObjectId(id),
+          role: "tutor",
+        });
+
+        if (!tutor) {
+          return res.status(404).json({ message: "Tutor not found" });
+        }
+
+        res.send(tutor);
+      } catch (error) {
+        console.error("Error fetching tutor:", error);
+        res.status(500).json({ message: "Failed to fetch tutor" });
+      }
+    });
+
     // ─── ADMIN: USER MANAGEMENT ──────────────────────────────────────────────
 
     // Get all users (Admin only)

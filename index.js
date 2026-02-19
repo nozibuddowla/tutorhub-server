@@ -3,11 +3,22 @@ const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
 const { ObjectId } = require("mongodb");
+const http = require("http");
+const { Server } = require("socket.io");
 
 require("dotenv").config();
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const app = express();
 const port = process.env.PORT || 5000;
+
+const server = http.createServer(app);
+
+const io = new Server(server, {
+  cors: {
+    origin: ["http://localhost:5173", "https://tutorhub-nozib.netlify.app"],
+    credentials: true,
+  },
+});
 
 // middleware
 // app.use(cors());
@@ -95,6 +106,8 @@ async function run() {
     const paymentCollections = database.collection("payments");
     const applicationsCollection = database.collection("applications");
     const reviewsCollection = database.collection("reviews");
+    const messagesCollection = database.collection("messages");
+    const conversationsCollection = database.collection("conversations");
 
     // ─── PUBLIC DATA ENDPOINTS ──────────────────────────────────────────────────
 
@@ -974,6 +987,126 @@ async function run() {
       res.send(reviews);
     });
 
+    // Get all conversations for a user
+    app.get("/conversations/:email", verifyJWT, async (req, res) => {
+      try {
+        const email = req.params.email;
+        if (req.user.email !== email) {
+          return res.status(403).json({ message: "Forbidden access" });
+        }
+        const conversations = await conversationsCollection
+          .find({ participants: email })
+          .sort({ lastMessageAt: -1 })
+          .toArray();
+        res.send(conversations);
+      } catch (error) {
+        res.status(500).json({ message: "Failed to fetch conversations" });
+      }
+    });
+
+    // Get or create a conversation
+    app.post("/conversations", verifyJWT, async (req, res) => {
+      try {
+        const {
+          studentEmail,
+          tutorEmail,
+          tuitionId,
+          tuitionTitle,
+          studentName,
+          tutorName,
+          studentPhoto,
+          tutorPhoto,
+        } = req.body;
+
+        const existing = await conversationsCollection.findOne({
+          tuitionId,
+          participants: { $all: [studentEmail, tutorEmail] },
+        });
+
+        if (existing) {
+          return res.json({ success: true, conversation: existing });
+        }
+
+        const conversation = {
+          participants: [studentEmail, tutorEmail],
+          studentEmail,
+          tutorEmail,
+          tuitionId,
+          tuitionTitle,
+          studentName,
+          tutorName,
+          studentPhoto: studentPhoto || "",
+          tutorPhoto: tutorPhoto || "",
+          lastMessage: "",
+          lastMessageAt: new Date(),
+          unreadCount: { [studentEmail]: 0, [tutorEmail]: 0 },
+          createdAt: new Date(),
+        };
+
+        const result = await conversationsCollection.insertOne(conversation);
+        conversation._id = result.insertedId;
+        res.json({ success: true, conversation });
+      } catch (error) {
+        res.status(500).json({ message: "Failed to create conversation" });
+      }
+    });
+
+    // Get total unread count for a user
+    app.get("/messages/unread/:email", verifyJWT, async (req, res) => {
+      try {
+        const email = req.params.email;
+        if (req.user.email !== email) {
+          return res.status(403).json({ message: "Forbidden" });
+        }
+        const conversations = await conversationsCollection
+          .find({ participants: email })
+          .toArray();
+        const totalUnread = conversations.reduce(
+          (sum, c) => sum + (c.unreadCount?.[email] || 0),
+          0,
+        );
+        res.json({ unread: totalUnread });
+      } catch (error) {
+        res.status(500).json({ message: "Failed to get unread count" });
+      }
+    });
+
+    // Get messages for a conversation
+    app.get("/messages/:conversationId", verifyJWT, async (req, res) => {
+      try {
+        const { conversationId } = req.params;
+        const conversation = await conversationsCollection.findOne({
+          _id: new ObjectId(conversationId),
+        });
+
+        if (!conversation) {
+          return res.status(404).json({ message: "Conversation not found" });
+        }
+        if (!conversation.participants.includes(req.user.email)) {
+          return res.status(403).json({ message: "Forbidden access" });
+        }
+
+        const messages = await messagesCollection
+          .find({ conversationId })
+          .sort({ createdAt: 1 })
+          .toArray();
+
+        // Mark as read + reset unread count
+        await messagesCollection.updateMany(
+          { conversationId, receiverEmail: req.user.email, read: false },
+          { $set: { read: true } },
+        );
+        await conversationsCollection.updateOne(
+          { _id: new ObjectId(conversationId) },
+          { $set: { [`unreadCount.${req.user.email}`]: 0 } },
+        );
+
+        res.send(messages);
+      } catch (error) {
+        res.status(500).json({ message: "Failed to fetch messages" });
+      }
+    });
+
     // await client.db("admin").command({ ping: 1 });
     console.log("Successfully connected to MongoDB!");
   } catch (error) {
@@ -985,10 +1118,56 @@ async function run() {
 }
 run().catch(console.dir);
 
+io.on("connection", (socket) => {
+  console.log("Socket connected:", socket.id);
+
+  socket.on("join_conversation", (conversationId) => {
+    socket.join(conversationId);
+  });
+
+  socket.on("send_message", async (data) => {
+    try {
+      const db = client.db("tutorhubDB");
+      const messagesCol = db.collection("messages");
+      const conversationsCol = db.collection("conversations");
+
+      const message = {
+        conversationId: data.conversationId,
+        senderEmail: data.senderEmail,
+        senderName: data.senderName,
+        senderPhoto: data.senderPhoto || "",
+        receiverEmail: data.receiverEmail,
+        text: data.text,
+        read: false,
+        createdAt: new Date(),
+      };
+
+      const result = await messagesCol.insertOne(message);
+      message._id = result.insertedId;
+
+      await conversationsCol.updateOne(
+        { _id: new ObjectId(data.conversationId) },
+        {
+          $set: { lastMessage: data.text, lastMessageAt: new Date() },
+          $inc: { [`unreadCount.${data.receiverEmail}`]: 1 },
+        },
+      );
+
+      io.to(data.conversationId).emit("receive_message", message);
+    } catch (err) {
+      console.error("Socket message error:", err);
+    }
+  });
+
+  socket.on("disconnect", () => {
+    console.log("Socket disconnected:", socket.id);
+  });
+});
+
 app.get("/", (req, res) => {
   res.send("Hello tutorHub!");
 });
 
-app.listen(port, () => {
-  console.log(`Server is running on ${port}`);
+server.listen(port, () => {
+  console.log(`Server + Socket.io running on port ${port}`);
 });

@@ -108,6 +108,7 @@ async function run() {
     const reviewsCollection = database.collection("reviews");
     const messagesCollection = database.collection("messages");
     const conversationsCollection = database.collection("conversations");
+    const sessionsCollection = database.collection("sessions");
 
     // ─── PUBLIC DATA ENDPOINTS ──────────────────────────────────────────────────
 
@@ -1104,6 +1105,166 @@ async function run() {
         res.send(messages);
       } catch (error) {
         res.status(500).json({ message: "Failed to fetch messages" });
+      }
+    });
+
+    
+    // ─── SESSION / CALENDAR ROUTES ────────────────────────────────────────────
+
+    // Get sessions for a user (student or tutor)
+    app.get("/sessions/:email", verifyJWT, async (req, res) => {
+      try {
+        const email = req.params.email;
+        if (req.user.email !== email) {
+          return res.status(403).json({ message: "Forbidden access" });
+        }
+
+        const sessions = await sessionsCollection
+          .find({
+            $or: [{ studentEmail: email }, { tutorEmail: email }],
+          })
+          .sort({ startTime: 1 })
+          .toArray();
+
+        res.send(sessions);
+      } catch (error) {
+        res.status(500).json({ message: "Failed to fetch sessions" });
+      }
+    });
+
+    // Get upcoming sessions for a user (next 10)
+    app.get("/sessions/upcoming/:email", verifyJWT, async (req, res) => {
+      try {
+        const email = req.params.email;
+        if (req.user.email !== email) {
+          return res.status(403).json({ message: "Forbidden access" });
+        }
+
+        const now = new Date();
+        const sessions = await sessionsCollection
+          .find({
+            $or: [{ studentEmail: email }, { tutorEmail: email }],
+            startTime: { $gte: now },
+            status: { $ne: "cancelled" },
+          })
+          .sort({ startTime: 1 })
+          .limit(10)
+          .toArray();
+
+        res.send(sessions);
+      } catch (error) {
+        res.status(500).json({ message: "Failed to fetch upcoming sessions" });
+      }
+    });
+
+    // Create a new session (tutor schedules, student confirms)
+    app.post("/sessions", verifyJWT, async (req, res) => {
+      try {
+        const {
+          tuitionId,
+          tuitionTitle,
+          studentEmail,
+          studentName,
+          tutorEmail,
+          tutorName,
+          subject,
+          startTime,
+          endTime,
+          notes,
+          location,
+        } = req.body;
+
+        // Only tutor or student involved in the tuition can create
+        if (req.user.email !== tutorEmail && req.user.email !== studentEmail) {
+          return res.status(403).json({ message: "Forbidden access" });
+        }
+
+        const session = {
+          tuitionId,
+          tuitionTitle,
+          studentEmail,
+          studentName,
+          tutorEmail,
+          tutorName,
+          subject,
+          startTime: new Date(startTime),
+          endTime: new Date(endTime),
+          notes: notes || "",
+          location: location || "",
+          status: "scheduled", // scheduled | completed | cancelled
+          createdBy: req.user.email,
+          createdAt: new Date(),
+        };
+
+        const result = await sessionsCollection.insertOne(session);
+        session._id = result.insertedId;
+        res.json({ success: true, session });
+      } catch (error) {
+        console.error("Error creating session:", error);
+        res.status(500).json({ message: "Failed to create session" });
+      }
+    });
+
+    // Update session status (complete or cancel)
+    app.patch("/sessions/:id", verifyJWT, async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { status, notes } = req.body;
+
+        const session = await sessionsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (!session) {
+          return res.status(404).json({ message: "Session not found" });
+        }
+
+        if (
+          req.user.email !== session.tutorEmail &&
+          req.user.email !== session.studentEmail
+        ) {
+          return res.status(403).json({ message: "Forbidden access" });
+        }
+
+        const updates = { status };
+        if (notes !== undefined) updates.notes = notes;
+        if (status === "completed") updates.completedAt = new Date();
+        if (status === "cancelled") updates.cancelledAt = new Date();
+
+        await sessionsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updates },
+        );
+
+        res.json({ success: true, message: "Session updated" });
+      } catch (error) {
+        res.status(500).json({ message: "Failed to update session" });
+      }
+    });
+
+    // Delete a session
+    app.delete("/sessions/:id", verifyJWT, async (req, res) => {
+      try {
+        const id = req.params.id;
+        const session = await sessionsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (!session) {
+          return res.status(404).json({ message: "Session not found" });
+        }
+
+        if (
+          req.user.email !== session.tutorEmail &&
+          req.user.email !== session.studentEmail
+        ) {
+          return res.status(403).json({ message: "Forbidden access" });
+        }
+
+        await sessionsCollection.deleteOne({ _id: new ObjectId(id) });
+        res.json({ success: true, message: "Session deleted" });
+      } catch (error) {
+        res.status(500).json({ message: "Failed to delete session" });
       }
     });
 

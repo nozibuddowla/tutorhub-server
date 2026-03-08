@@ -21,7 +21,6 @@ const io = new Server(server, {
 });
 
 // middleware
-// app.use(cors());
 app.use(
   cors({
     origin: ["http://localhost:5173", "https://tutorhub-nozib.netlify.app"],
@@ -1108,7 +1107,6 @@ async function run() {
       }
     });
 
-    
     // ─── SESSION / CALENDAR ROUTES ────────────────────────────────────────────
 
     // Get sessions for a user (student or tutor)
@@ -1265,6 +1263,25 @@ async function run() {
         res.json({ success: true, message: "Session deleted" });
       } catch (error) {
         res.status(500).json({ message: "Failed to delete session" });
+      }
+    });
+
+    app.get("/stats", async (req, res) => {
+      try {
+        const [tutorCount, studentCount, tuitionCount] = await Promise.all([
+          userCollections.countDocuments({ role: "tutor" }),
+          userCollections.countDocuments({ role: "student" }),
+          tuitionCollections.countDocuments(),
+        ]);
+
+        res.json({
+          tutors: tutorCount,
+          students: studentCount,
+          tuitions: tuitionCount,
+          satisfaction: 98,
+        });
+      } catch (err) {
+        res.status(500).json({ error: "Failed to fetch stats" });
       }
     });
 

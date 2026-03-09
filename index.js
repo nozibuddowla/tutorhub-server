@@ -272,10 +272,18 @@ async function run() {
     // Get ALL Tutors (no limit) — for the tutors listing page
     app.get("/tutors/all", async (req, res) => {
       try {
-        const { search, page = 1, limit = 9 } = req.query;
+        const {
+          search,
+          subject,
+          minRating,
+          sort,
+          page = 1,
+          limit = 9,
+        } = req.query;
 
         let query = { role: "tutor" };
 
+        // Search by name OR subjects
         if (search) {
           query.$or = [
             { name: { $regex: search, $options: "i" } },
@@ -283,11 +291,36 @@ async function run() {
           ];
         }
 
+        // Filter by specific subject
+        if (subject && subject !== "All" && subject !== "") {
+          query.subjects = { $regex: subject, $options: "i" };
+        }
+
+        // Filter by minimum rating
+        if (minRating && parseFloat(minRating) > 0) {
+          query.averageRating = { $gte: String(parseFloat(minRating)) };
+          // averageRating is stored as string "4.00" so we need numeric comparison:
+          // Use $expr for numeric comparison
+          delete query.averageRating;
+          query.$expr = {
+            $gte: [
+              { $toDouble: { $ifNull: ["$averageRating", "0"] } },
+              parseFloat(minRating),
+            ],
+          };
+        }
+
+        // Sort options
+        let sortOptions = { createdAt: -1 };
+        if (sort === "ratingHigh") sortOptions = { averageRating: -1 };
+        if (sort === "ratingLow") sortOptions = { averageRating: 1 };
+        if (sort === "reviewsHigh") sortOptions = { reviewCount: -1 };
+
         const skip = (parseInt(page) - 1) * parseInt(limit);
 
         const tutors = await userCollections
           .find(query)
-          .sort({ createdAt: -1 })
+          .sort(sortOptions)
           .skip(skip)
           .limit(parseInt(limit))
           .toArray();
@@ -859,16 +892,16 @@ async function run() {
           subject,
           location,
           status,
+          salaryMin,
+          salaryMax,
           sort,
           page = 1,
-          limit = 6,
+          limit = 8,
         } = req.query;
 
         let query = {};
 
-        if (status) {
-          query.status = status;
-        }
+        if (status) query.status = status;
 
         if (search) {
           query.$or = [
@@ -877,12 +910,19 @@ async function run() {
           ];
         }
 
-        if (subject && subject !== "all" && subject !== "") {
+        if (subject && subject !== "All" && subject !== "") {
           query.subject = { $regex: subject, $options: "i" };
         }
 
         if (location) {
           query.location = { $regex: location, $options: "i" };
+        }
+
+        // Salary range filter
+        if (salaryMin || salaryMax) {
+          query.salary = {};
+          if (salaryMin) query.salary.$gte = Number(salaryMin);
+          if (salaryMax) query.salary.$lte = Number(salaryMax);
         }
 
         let sortOptions = { createdAt: -1 };
@@ -903,7 +943,7 @@ async function run() {
         res.send({
           tuitions,
           total,
-          totalPages: Math.ceil(total / limit),
+          totalPages: Math.ceil(total / parseInt(limit)),
           currentPage: parseInt(page),
         });
       } catch (error) {

@@ -108,6 +108,7 @@ async function run() {
     const messagesCollection = database.collection("messages");
     const conversationsCollection = database.collection("conversations");
     const sessionsCollection = database.collection("sessions");
+    const contactCollection = database.collection("contacts");
 
     // ─── PUBLIC DATA ENDPOINTS ──────────────────────────────────────────────────
 
@@ -1324,6 +1325,86 @@ async function run() {
         res.status(500).json({ error: "Failed to fetch stats" });
       }
     });
+
+    app.post("/contact", async (req, res) => {
+      try {
+        const { name, email, subject, message } = req.body;
+
+        // Server-side validation
+        if (!name?.trim() || !email?.trim() || !message?.trim()) {
+          return res
+            .status(400)
+            .json({
+              success: false,
+              message: "Name, email, and message are required.",
+            });
+        }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          return res
+            .status(400)
+            .json({ success: false, message: "Invalid email address." });
+        }
+        if (message.trim().length < 10) {
+          return res
+            .status(400)
+            .json({
+              success: false,
+              message: "Message must be at least 10 characters.",
+            });
+        }
+
+        const doc = {
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          subject: subject?.trim() || "General Inquiry",
+          message: message.trim(),
+          status: "unread", // unread | read | replied
+          createdAt: new Date(),
+        };
+
+        const result = await contactCollection.insertOne(doc);
+        res.json({
+          success: true,
+          insertedId: result.insertedId,
+          message: "Message received!",
+        });
+      } catch (error) {
+        console.error("Contact form error:", error);
+        res
+          .status(500)
+          .json({ success: false, message: "Failed to save message." });
+      }
+    });
+
+    app.get("/admin/contacts", verifyJWT, verifyAdmin, async (req, res) => {
+      try {
+        const messages = await contactCollection
+          .find()
+          .sort({ createdAt: -1 })
+          .toArray();
+        res.json(messages);
+      } catch (error) {
+        res.status(500).json({ message: "Failed to fetch contact messages." });
+      }
+    });
+
+    app.patch(
+      "/admin/contacts/:id",
+      verifyJWT,
+      verifyAdmin,
+      async (req, res) => {
+        try {
+          const { status } = req.body; // "read" | "replied"
+          await contactCollection.updateOne(
+            { _id: new ObjectId(req.params.id) },
+            { $set: { status, updatedAt: new Date() } },
+          );
+          res.json({ success: true });
+        } catch (error) {
+          res.status(500).json({ message: "Failed to update message." });
+        }
+      },
+    );
 
     // await client.db("admin").command({ ping: 1 });
     console.log("Successfully connected to MongoDB!");

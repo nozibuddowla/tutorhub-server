@@ -2,6 +2,7 @@ const router = require("express").Router();
 const { getDB } = require("../config/db");
 const { ObjectId } = require("mongodb");
 const { asyncHandler: ah } = require("../middleware/errorHandler");
+const { verifyJWT, verifyTutor } = require("../middleware/auth");
 
 // GET /tutors — latest 6 for home
 router.get(
@@ -18,7 +19,7 @@ router.get(
   }),
 );
 
-// GET /tutors/all — paginated with filters (MUST be before /:id)
+// GET /tutors/all — MUST be before /:id
 router.get(
   "/all",
   ah(async (req, res) => {
@@ -71,14 +72,61 @@ router.get(
   }),
 );
 
-// GET /tutors/:id
+// GET /tutors/applications/:email — tutor's applications
+router.get(
+  "/applications/:email",
+  verifyJWT,
+  verifyTutor,
+  ah(async (req, res) => {
+    const db = getDB();
+    const apps = await db
+      .collection("applications")
+      .find({ tutorEmail: req.params.email })
+      .sort({ createdAt: -1 })
+      .toArray();
+    res.json(apps);
+  }),
+);
+
+// GET /tutors/ongoing/:email — tutor's ongoing tuitions
+router.get(
+  "/ongoing/:email",
+  verifyJWT,
+  verifyTutor,
+  ah(async (req, res) => {
+    const db = getDB();
+    const ongoing = await db
+      .collection("applications")
+      .find({ tutorEmail: req.params.email, status: "approved" })
+      .toArray();
+    res.json(ongoing);
+  }),
+);
+
+// GET /tutors/revenue/:email — tutor's revenue
+router.get(
+  "/revenue/:email",
+  verifyJWT,
+  verifyTutor,
+  ah(async (req, res) => {
+    const db = getDB();
+    const payments = await db
+      .collection("payments")
+      .find({ tutorEmail: req.params.email, status: "success" })
+      .toArray();
+    res.json(payments);
+  }),
+);
+
+// GET /tutors/:id — single tutor profile (MUST be last)
 router.get(
   "/:id",
   ah(async (req, res) => {
     const db = getDB();
-    const tutor = await db
-      .collection("users")
-      .findOne({ _id: new ObjectId(req.params.id), role: "tutor" });
+    const tutor = await db.collection("users").findOne({
+      _id: new ObjectId(req.params.id),
+      role: "tutor",
+    });
     if (!tutor) return res.status(404).json({ message: "Tutor not found." });
     res.json(tutor);
   }),
